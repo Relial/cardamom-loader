@@ -1,0 +1,14 @@
+LIBRARY dsound
+EXPORTS
+    DirectSoundCaptureCreate = C:\Windows\SysWOW64\dsound.DirectSoundCaptureCreate @1
+    DirectSoundCaptureCreate8 = C:\Windows\SysWOW64\dsound.DirectSoundCaptureCreate8 @2
+    DirectSoundCaptureEnumerateA = C:\Windows\SysWOW64\dsound.DirectSoundCaptureEnumerateA @3
+    DirectSoundCaptureEnumerateW = C:\Windows\SysWOW64\dsound.DirectSoundCaptureEnumerateW @4
+    DirectSoundCreate = C:\Windows\SysWOW64\dsound.DirectSoundCreate @5
+    DirectSoundCreate8 = C:\Windows\SysWOW64\dsound.DirectSoundCreate8 @6
+    DirectSoundEnumerateA = C:\Windows\SysWOW64\dsound.DirectSoundEnumerateA @7
+    DirectSoundEnumerateW = C:\Windows\SysWOW64\dsound.DirectSoundEnumerateW @8
+    DirectSoundFullDuplexCreate = C:\Windows\SysWOW64\dsound.DirectSoundFullDuplexCreate @9
+    DllCanUnloadNow = C:\Windows\SysWOW64\dsound.DllCanUnloadNow @10
+    DllGetClassObject = C:\Windows\SysWOW64\dsound.DllGetClassObject @11
+    GetDeviceID = C:\Windows\SysWOW64\dsound.GetDeviceID @12
