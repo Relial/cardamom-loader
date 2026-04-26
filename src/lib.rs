@@ -6,18 +6,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use mimalloc::MiMalloc;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use windows::{
     Win32::{
-        Foundation::HINSTANCE,
+        Foundation::{HINSTANCE, HMODULE},
         System::{
             Console::{AllocConsole, SetConsoleTitleW},
             LibraryLoader::LoadLibraryW,
             SystemServices::DLL_PROCESS_ATTACH,
         },
+        UI::Shell::{FOLDERID_SystemX86, KNOWN_FOLDER_FLAG, SHGetKnownFolderPath},
     },
     core::{HSTRING, w},
 };
@@ -109,30 +110,53 @@ fn load_plugins(path: &Path) -> Result<()> {
         if let Some(ext) = entry_path.extension()
             && ext == "dll"
         {
-            match entry_path.canonicalize() {
-                Ok(absolute_path) => {
-                    info!(
-                        "Loading plugin: {}",
-                        entry_path.file_name().unwrap_or(OsStr::new("?")).display()
-                    );
-                    unsafe {
-                        match LoadLibraryW(&HSTRING::from(absolute_path.as_path())) {
-                            Ok(_) => info!("Loaded successfully"),
-                            Err(e) => error!("Error loading plugin, skipping: {e}"),
-                        }
-                    };
-                }
-                Err(e) => error!(
-                    "Failed to convert path at {} to absolute: {e}",
+            let absolute_path = entry_path.canonicalize().with_context(|| {
+                format!(
+                    "Failed to convert path at {} to absolute.",
                     entry_path.display()
-                ),
-            }
+                )
+            })?;
+            let plugin_name = entry_path.file_name().unwrap_or(OsStr::new("?")).display();
+            unsafe {
+                match LoadLibraryW(&HSTRING::from(absolute_path.as_path())) {
+                    Ok(_) => info!("Loaded {}", plugin_name),
+                    Err(e) => error!("Error loading {}, skipping: {e}", plugin_name),
+                }
+            };
         }
     }
     Ok(())
 }
 
+fn load_original_dll() -> Result<HMODULE> {
+    unsafe {
+        let id = FOLDERID_SystemX86;
+        let system_path = SHGetKnownFolderPath(&id, KNOWN_FOLDER_FLAG::default(), None)
+            .context("Error finding Windows system directory")?;
+        let mut path = system_path.to_string().with_context(|| {
+            format!(
+                "Failed to convert system path {} to Rust string",
+                system_path.display()
+            )
+        })?;
+        path.push_str("\\dsound.dll");
+        let path_hstring = HSTRING::from(path);
+        let module = LoadLibraryW(&path_hstring).context("Failed to load original dsound.dll")?;
+        Ok(module)
+    }
+}
+
 fn main() -> Result<()> {
+    match load_original_dll() {
+        Ok(dll) => {
+            exports::init(dll);
+        }
+        Err(e) => {
+            enable_console()?;
+            bail!(e);
+        }
+    };
+
     match get_exe_dir() {
         Ok(exe_dir) => {
             let config_path = exe_dir.join("cardamom-loader.toml");
@@ -144,17 +168,12 @@ fn main() -> Result<()> {
                     }
                     let plugins_path = exe_dir.join("plugins");
                     if !plugins_path.is_dir() {
-                        info!("Plugins directory doesn't exist. Creating.");
-                        match std::fs::create_dir(&plugins_path) {
-                            Ok(_) => {
-                                info!("Created successfully");
-                                return Ok(());
-                            }
-                            Err(e) => bail!("Failed to create plugins directory: {e}"),
-                        }
+                        info!("No plugins directory found at {}", plugins_path.display());
+                    } else {
+                        info!("Loading plugins from {}", plugins_path.display());
+                        load_plugins(&plugins_path)
+                            .map_err(|e| anyhow!("Error loading plugins: {e}"))?;
                     }
-                    load_plugins(&plugins_path)
-                        .map_err(|e| anyhow!("Error loading plugins: {e}"))?;
                 }
                 Err(e) => {
                     enable_console()?;
