@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use mimalloc::MiMalloc;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use windows::{
     Win32::{
         Foundation::{HINSTANCE, HMODULE},
@@ -166,19 +166,18 @@ fn main() -> Result<()> {
                         enable_console()?;
                         info!("Initialized successfully");
                     }
-                    let plugins_path = exe_dir.join("plugins");
-                    if !plugins_path.is_dir() {
-                        info!("No plugins directory found at {}", plugins_path.display());
-                    } else {
-                        info!("Loading plugins from {}", plugins_path.display());
-                        load_plugins(&plugins_path)
-                            .map_err(|e| anyhow!("Error loading plugins: {e}"))?;
-                    }
                 }
                 Err(e) => {
                     enable_console()?;
-                    bail!(e)
+                    warn!("{e}");
                 }
+            }
+            let plugins_path = exe_dir.join("plugins");
+            if !plugins_path.is_dir() {
+                info!("No plugins directory found at {}", plugins_path.display());
+            } else {
+                info!("Loading plugins from {}", plugins_path.display());
+                load_plugins(&plugins_path).map_err(|e| anyhow!("Error loading plugins: {e}"))?;
             }
         }
         Err(e) => {
