@@ -1,4 +1,4 @@
-Loads plugins from a plugins directory placed next to the executable.
+Loads plugins from a folder placed next to the executable. Folder name can be set in cardamom-loader.toml and defaults to "plugins".
 
 Optionally opens a console window.
 

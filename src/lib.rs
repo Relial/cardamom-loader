@@ -29,9 +29,19 @@ static GLOBAL: MiMalloc = MiMalloc;
 #[allow(non_snake_case)]
 mod exports;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 struct Config {
     console: bool,
+    plugins_folder_name: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            console: false,
+            plugins_folder_name: "plugins".to_string(),
+        }
+    }
 }
 
 fn enable_console() -> Result<()> {
@@ -160,19 +170,21 @@ fn main() -> Result<()> {
     match get_exe_dir() {
         Ok(exe_dir) => {
             let config_path = exe_dir.join("cardamom-loader.toml");
-            match read_config(&config_path) {
+            let config = match read_config(&config_path) {
                 Ok(config) => {
                     if config.console {
                         enable_console()?;
                         info!("Initialized successfully");
                     }
+                    config
                 }
                 Err(e) => {
                     enable_console()?;
                     warn!("{e}");
+                    Config::default()
                 }
-            }
-            let plugins_path = exe_dir.join("plugins");
+            };
+            let plugins_path = exe_dir.join(config.plugins_folder_name);
             if !plugins_path.is_dir() {
                 info!("No plugins directory found at {}", plugins_path.display());
             } else {
