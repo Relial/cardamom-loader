@@ -59,10 +59,11 @@ fn enable_console() -> Result<()> {
 
 fn get_exe_dir() -> Result<PathBuf> {
     let mut exe = current_exe().map_err(|e| anyhow!("Failed to get current executable: {e}"))?;
-    if !exe.pop() {
-        bail!("Failed to get executable's parent directory")
+    if exe.pop() {
+        Ok(exe)
+    } else {
+        Err(anyhow!("Failed to get executable's parent directory"))
     }
-    Ok(exe)
 }
 
 fn create_new_config(path: &Path) -> Result<()> {
@@ -149,9 +150,9 @@ fn load_original_dll() -> Result<HMODULE> {
                 system_path.display()
             )
         })?;
-        path.push_str("\\dsound.dll");
+        path.push_str("\\dinput8.dll");
         let path_hstring = HSTRING::from(path);
-        let module = LoadLibraryW(&path_hstring).context("Failed to load original dsound.dll")?;
+        let module = LoadLibraryW(&path_hstring).context("Failed to load original dinput8.dll")?;
         Ok(module)
     }
 }
