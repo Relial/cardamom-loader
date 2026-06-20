@@ -9,7 +9,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use mimalloc::MiMalloc;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use tracing::{debug, error, info, level_filters::LevelFilter, warn};
 use windows::{
     Win32::{
         Foundation::{HINSTANCE, HMODULE},
@@ -29,25 +30,71 @@ use windows::{
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+const OVERRIDE_DLL_NAME: &str = "dinput8_c.dll";
+
 #[allow(non_snake_case)]
 mod exports;
+
+#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Default, Clone, Copy)]
+#[repr(u8)]
+enum LogLevel {
+    Off = 0,
+    Error = 1,
+    Warn = 2,
+    #[default]
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
+}
+
+impl From<LogLevel> for LevelFilter {
+    fn from(value: LogLevel) -> Self {
+        match value {
+            LogLevel::Off => LevelFilter::OFF,
+            LogLevel::Error => LevelFilter::ERROR,
+            LogLevel::Warn => LevelFilter::WARN,
+            LogLevel::Info => LevelFilter::INFO,
+            LogLevel::Debug => LevelFilter::DEBUG,
+            LogLevel::Trace => LevelFilter::TRACE,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct Config {
     console: bool,
     plugins_folder_name: String,
+    log_level: LogLevel,
 }
 
 impl Config {
-    fn load_from_file(path: &Path) -> Result<Self> {
+    fn load_or_create_new(exe_dir: impl AsRef<Path>) -> Self {
+        let config_path = exe_dir.as_ref().join("cardamom-loader.toml");
+        Config::load_from_file(&config_path).unwrap_or_else(|e| {
+            let new = Self::default();
+            enable_console(new.log_level);
+            warn!("{e:#}");
+            if let Err(e) = new.create_file(&config_path) {
+                error!("{e:#}");
+            } else {
+                info!("Created new config");
+                info!("This console window will be hidden on future game launches. If you'd like it to open again, edit cardamom-loader.toml");
+            }
+            new
+        })
+    }
+
+    fn load_from_file(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
         let bytes = std::fs::read(path)
             .with_context(|| format!("Failed to read config at {}", path.display()))?;
         let config = toml::from_slice(&bytes).context("Failed to deserialize config file")?;
         Ok(config)
     }
 
-    fn save_to_file(&self, path: &Path) -> Result<()> {
-        let mut file = File::create_new(path)
+    fn create_file(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        let mut file = File::create(path)
             .with_context(|| format!("Failed to create file at {}", path.display()))?;
         let serialized = toml::to_string_pretty(self).context("Failed to serialize to toml")?;
         file.write_all(serialized.as_bytes())
@@ -61,14 +108,16 @@ impl Default for Config {
         Self {
             console: false,
             plugins_folder_name: "plugins".to_string(),
+            log_level: Default::default(),
         }
     }
 }
 
-fn enable_console() {
+fn enable_console(log_level: LogLevel) {
     tracing_subscriber::fmt()
         .without_time()
         .with_ansi(false)
+        .with_max_level(log_level)
         .init();
 
     unsafe {
@@ -90,12 +139,13 @@ fn get_exe_dir() -> Result<PathBuf> {
     }
 }
 
-fn load_plugin(path: &Path) -> Result<()> {
+fn load_dll(path: impl AsRef<Path>) -> Result<HMODULE> {
+    let path = path.as_ref();
     let absolute_path = path
         .canonicalize()
-        .with_context(|| format!("Failed to convert path at {} to absolute", path.display()))?;
-    unsafe { LoadLibraryW(&HSTRING::from(absolute_path.as_path()))? };
-    Ok(())
+        .with_context(|| format!("Failed to convert path {} to absolute", path.display()))?;
+    let module = unsafe { LoadLibraryW(&HSTRING::from(absolute_path.as_path()))? };
+    Ok(module)
 }
 
 fn load_plugins(path: &Path) -> Result<()> {
@@ -108,7 +158,7 @@ fn load_plugins(path: &Path) -> Result<()> {
         if let Some(ext) = entry_path.extension()
             && ext == "dll"
         {
-            if let Err(e) = load_plugin(&entry_path) {
+            if let Err(e) = load_dll(&entry_path) {
                 error!("Failed to load plugin at {}: {e:#}", entry_path.display());
             } else {
                 let plugin_name = entry_path.file_name().unwrap_or(OsStr::new("?"));
@@ -119,7 +169,7 @@ fn load_plugins(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn load_original_dll() -> Result<HMODULE> {
+fn load_real_dinput() -> Result<HMODULE> {
     unsafe {
         let id = FOLDERID_SystemX86;
         let system_path = SHGetKnownFolderPath(&id, KNOWN_FOLDER_FLAG::default(), None)
@@ -131,60 +181,88 @@ fn load_original_dll() -> Result<HMODULE> {
             )
         })?;
         path.push_str("\\dinput8.dll");
-        let path_hstring = HSTRING::from(path);
-        let module = LoadLibraryW(&path_hstring).context("Failed to load original dinput8.dll")?;
-        Ok(module)
+        load_dll(&path).context("Failed to load original dinput8.dll")
     }
 }
 
-fn main() -> Result<()> {
-    let exe_dir = get_exe_dir()?;
-    let config_path = exe_dir.join("cardamom-loader.toml");
-    let config = Config::load_from_file(&config_path).unwrap_or_else(|e| {
-        enable_console();
-        warn!("{e:#}");
-        let new = Config::default();
-        if let Err(e) = new.save_to_file(&config_path) {
-            error!("{e:#}");
-        } else {
-            info!("Created new config");
-            info!("This console window will be hidden on future game launches. If you'd like it to open again, edit cardamom-loader.toml");
+fn load_dinput(exe_dir: impl AsRef<Path>) -> Result<HMODULE> {
+    let override_dll_path = exe_dir.as_ref().join(OVERRIDE_DLL_NAME);
+    match load_dll(&override_dll_path) {
+        Ok(module) => {
+            info!(
+                "Loaded {OVERRIDE_DLL_NAME} at {}",
+                override_dll_path.display()
+            );
+            Ok(module)
         }
-        new
-    });
-    if config.console {
-        enable_console();
+        Err(e) => {
+            debug!(
+                "Failed to load {OVERRIDE_DLL_NAME} at {}: {e:#}",
+                override_dll_path.display()
+            );
+            load_real_dinput()
+        }
     }
+}
 
-    let plugins_path = exe_dir.join(config.plugins_folder_name);
-    if !plugins_path.is_dir() {
-        info!("No plugins directory found at {}", plugins_path.display());
+fn plugin_loader(plugins_dir: impl AsRef<Path>) -> Result<()> {
+    let plugins_dir = plugins_dir.as_ref();
+    if !plugins_dir.is_dir() {
+        info!("No plugins directory found at {}", plugins_dir.display());
     } else {
-        info!("Loading plugins from {}", plugins_path.display());
-        load_plugins(&plugins_path).context("Error loading plugins")?;
+        info!("Loading plugins from {}", plugins_dir.display());
+        load_plugins(plugins_dir).context("Error loading plugins")?;
         info!("Finished loading");
     }
     Ok(())
 }
 
+fn message_box_error(error: anyhow::Error) {
+    let body = HSTRING::from(format!("{error:#}"));
+    let caption = HSTRING::from("Cardamom Loader error");
+    unsafe { MessageBoxW(None, &body, &caption, MB_OK) };
+}
+
+fn dinput_load_error(error: anyhow::Error) {
+    message_box_error(error.context("Failed to load real dinput8.dll from system dir"));
+}
+
+fn main() {
+    match get_exe_dir() {
+        Ok(exe_dir) => {
+            let config = Config::load_or_create_new(&exe_dir);
+            if config.console {
+                enable_console(config.log_level);
+            }
+            match load_dinput(&exe_dir) {
+                Ok(dinput) => {
+                    exports::init(dinput);
+                    let plugins_dir = exe_dir.join(config.plugins_folder_name);
+                    if let Err(e) = plugin_loader(plugins_dir) {
+                        error!("{e:#}");
+                    }
+                }
+                Err(e) => {
+                    dinput_load_error(e);
+                }
+            }
+        }
+        Err(e) => {
+            enable_console(LogLevel::default());
+            error!(
+                "Failed to get exe directory, not loading {OVERRIDE_DLL_NAME} or plugins: {e:#}"
+            );
+            if let Err(e) = load_real_dinput() {
+                dinput_load_error(e);
+            }
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 extern "system" fn DllMain(_hinst: HINSTANCE, fdw_reason: u32, _lpv_reserved: *mut ()) -> bool {
     if fdw_reason == DLL_PROCESS_ATTACH {
-        match load_original_dll() {
-            Ok(dll) => {
-                exports::init(dll);
-                if let Err(e) = main() {
-                    error!("{e:#}");
-                }
-            }
-            Err(e) => {
-                let body = HSTRING::from(format!(
-                    "Failed to load real dinput8.dll from system dir: {e:#}"
-                ));
-                let caption = HSTRING::from("Cardamom Loader error");
-                unsafe { MessageBoxW(None, &body, &caption, MB_OK) };
-            }
-        }
+        main();
     }
     true
 }
