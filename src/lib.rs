@@ -74,7 +74,7 @@ impl Config {
             let new = Self::default();
             enable_console(new.log_level);
             warn!("{e:#}");
-            if let Err(e) = new.create_file(&config_path) {
+            if let Err(e) = create_default_config(config_path) {
                 error!("{e:#}");
             } else {
                 info!("Created new config");
@@ -91,16 +91,6 @@ impl Config {
         let config = toml::from_slice(&bytes).context("Failed to deserialize config file")?;
         Ok(config)
     }
-
-    fn create_file(&self, path: impl AsRef<Path>) -> Result<()> {
-        let path = path.as_ref();
-        let mut file = File::create(path)
-            .with_context(|| format!("Failed to create file at {}", path.display()))?;
-        let serialized = toml::to_string_pretty(self).context("Failed to serialize to toml")?;
-        file.write_all(serialized.as_bytes())
-            .with_context(|| format!("Failed to write to file at {}", path.display()))?;
-        Ok(())
-    }
 }
 
 impl Default for Config {
@@ -111,6 +101,22 @@ impl Default for Config {
             log_level: Default::default(),
         }
     }
+}
+
+const DEFAULT_CONFIG: &str = r#"console = false
+plugins_folder_name = "plugins"
+
+# 0 Off | 1 Error | 2 Warn | 3 Info | 4 Debug | 5 Trace
+log_level = 3
+"#;
+
+fn create_default_config(path: impl AsRef<Path>) -> Result<()> {
+    let path = path.as_ref();
+    let mut file = File::create(path)
+        .with_context(|| format!("Failed to create file at {}", path.display()))?;
+    file.write_all(DEFAULT_CONFIG.as_bytes())
+        .with_context(|| format!("Failed to write to file at {}", path.display()))?;
+    Ok(())
 }
 
 fn enable_console(log_level: LogLevel) {
@@ -144,7 +150,10 @@ fn load_dll(path: impl AsRef<Path>) -> Result<HMODULE> {
     let absolute_path = path
         .canonicalize()
         .with_context(|| format!("Failed to convert path {} to absolute", path.display()))?;
-    let module = unsafe { LoadLibraryW(&HSTRING::from(absolute_path.as_path()))? };
+    let module = unsafe {
+        LoadLibraryW(&HSTRING::from(absolute_path.as_path()))
+            .with_context(|| format!("LoadLibraryW for path {} failed", absolute_path.display()))?
+    };
     Ok(module)
 }
 
@@ -189,17 +198,11 @@ fn load_dinput(exe_dir: impl AsRef<Path>) -> Result<HMODULE> {
     let override_dll_path = exe_dir.as_ref().join(OVERRIDE_DLL_NAME);
     match load_dll(&override_dll_path) {
         Ok(module) => {
-            info!(
-                "Loaded {OVERRIDE_DLL_NAME} at {}",
-                override_dll_path.display()
-            );
+            info!("Loaded {OVERRIDE_DLL_NAME}");
             Ok(module)
         }
         Err(e) => {
-            debug!(
-                "Failed to load {OVERRIDE_DLL_NAME} at {}: {e:#}",
-                override_dll_path.display()
-            );
+            debug!("Failed to load {OVERRIDE_DLL_NAME}: {e:#}");
             load_real_dinput()
         }
     }
