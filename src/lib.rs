@@ -165,7 +165,7 @@ fn load_plugins(path: &Path) -> Result<()> {
     {
         let entry_path = entry.path();
         if let Some(ext) = entry_path.extension()
-            && ext == "dll"
+            && ext.eq_ignore_ascii_case("dll")
         {
             if let Err(e) = load_dll(&entry_path) {
                 error!("Failed to load plugin at {}: {e:#}", entry_path.display());
