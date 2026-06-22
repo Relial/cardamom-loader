@@ -1,5 +1,5 @@
 use std::{
-    env::current_exe,
+    env::{current_exe, set_var},
     ffi::OsStr,
     fs::File,
     io::Write,
@@ -45,6 +45,19 @@ enum LogLevel {
     Info = 3,
     Debug = 4,
     Trace = 5,
+}
+
+impl LogLevel {
+    fn as_str(&self) -> &str {
+        match self {
+            LogLevel::Off => "OFF",
+            LogLevel::Error => "ERROR",
+            LogLevel::Warn => "WARN",
+            LogLevel::Info => "INFO",
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Trace => "TRACE",
+        }
+    }
 }
 
 impl From<LogLevel> for LevelFilter {
@@ -230,6 +243,12 @@ fn dinput_load_error(error: anyhow::Error) {
     message_box_error(error.context("Failed to load real dinput8.dll from system dir"));
 }
 
+fn set_env_log_level(log_level: LogLevel) {
+    unsafe {
+        set_var("CARDAMOM_LOG_LEVEL", log_level.as_str());
+    }
+}
+
 fn main() {
     match get_exe_dir() {
         Ok(exe_dir) => {
@@ -240,6 +259,7 @@ fn main() {
             match load_dinput(&exe_dir) {
                 Ok(dinput) => {
                     exports::init(dinput);
+                    set_env_log_level(config.log_level);
                     let plugins_dir = exe_dir.join(config.plugins_folder_name);
                     if let Err(e) = plugin_loader(plugins_dir) {
                         error!("{e:#}");
