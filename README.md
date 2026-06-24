@@ -4,6 +4,8 @@ Loads plugins from a folder placed next to the executable. Folder name can be se
 
 Optionally opens a console window.
 
+If you also want to use a different dinput8.dll, rename it to dinput8_c.dll and place it next to this one.
+
 Made for 32bit executables.
 
 ## Linux
