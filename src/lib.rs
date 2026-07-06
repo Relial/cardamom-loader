@@ -110,14 +110,14 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             console: false,
-            plugins_folder_name: "plugins".to_string(),
+            plugins_folder_name: "cardamom".to_string(),
             log_level: Default::default(),
         }
     }
 }
 
 const DEFAULT_CONFIG: &str = r#"console = false
-plugins_folder_name = "plugins"
+plugins_folder_name = "cardamom"
 
 # 0 Off | 1 Error | 2 Warn | 3 Info | 4 Debug | 5 Trace
 log_level = 3
