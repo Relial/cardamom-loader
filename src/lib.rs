@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use mimalloc::MiMalloc;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use tracing::{debug, error, info, level_filters::LevelFilter, warn};
@@ -26,9 +25,6 @@ use windows::{
     },
     core::{HSTRING, w},
 };
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
 
 const OVERRIDE_DLL_NAME: &str = "dinput8_c.dll";
 

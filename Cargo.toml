@@ -1,6 +1,6 @@
 [package]
 name = "dinput8"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [lib]
@@ -16,7 +16,6 @@ debug = false
 
 [dependencies]
 anyhow = "1.0.103"
-mimalloc = "0.1.52"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_repr = "0.1.20"
 toml = "1.1.2"
