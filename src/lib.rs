@@ -1,5 +1,5 @@
 use std::{
-    env::{current_exe, set_var},
+    env::{current_exe, set_var, var_os},
     ffi::OsStr,
     fs::File,
     io::Write,
@@ -245,7 +245,20 @@ fn set_env_log_level(log_level: LogLevel) {
     }
 }
 
+fn set_env_loaded() {
+    unsafe {
+        set_var("CARDAMOM_LOADED", "");
+    }
+}
+
+fn get_env_loaded() -> bool {
+    var_os("CARDAMOM_LOADED").is_some()
+}
+
 fn main() {
+    let already_loaded = get_env_loaded();
+    set_env_loaded();
+
     match get_exe_dir() {
         Ok(exe_dir) => {
             let config = Config::load_or_create_new(&exe_dir);
@@ -255,10 +268,14 @@ fn main() {
             match load_dinput(&exe_dir) {
                 Ok(dinput) => {
                     exports::init(dinput);
-                    set_env_log_level(config.log_level);
-                    let plugins_dir = exe_dir.join(config.plugins_folder_name);
-                    if let Err(e) = plugin_loader(plugins_dir) {
-                        error!("{e:#}");
+                    if already_loaded {
+                        debug!("Already loaded, skipping plugin loading");
+                    } else {
+                        set_env_log_level(config.log_level);
+                        let plugins_dir = exe_dir.join(config.plugins_folder_name);
+                        if let Err(e) = plugin_loader(plugins_dir) {
+                            error!("{e:#}");
+                        }
                     }
                 }
                 Err(e) => {
