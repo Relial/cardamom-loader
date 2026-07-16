@@ -26,7 +26,15 @@ use windows::{
     core::{HSTRING, w},
 };
 
-const OVERRIDE_DLL_NAME: &str = "dinput8_c.dll";
+const DLL_NAME: &str = cfg_select! {
+    feature = "dsound" => "dsound.dll",
+    _ => "dinput8.dll",
+};
+
+const OVERRIDE_DLL_NAME: &str = cfg_select! {
+    feature = "dsound" => "dsound_c.dll",
+    _ => "dinput8_c.dll",
+};
 
 #[allow(non_snake_case)]
 mod exports;
@@ -187,7 +195,7 @@ fn load_plugins(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn load_real_dinput() -> Result<HMODULE> {
+fn load_system_dll() -> Result<HMODULE> {
     unsafe {
         let id = FOLDERID_SystemX86;
         let system_path = SHGetKnownFolderPath(&id, KNOWN_FOLDER_FLAG::default(), None)
@@ -198,12 +206,13 @@ fn load_real_dinput() -> Result<HMODULE> {
                 system_path.display()
             )
         })?;
-        path.push_str("\\dinput8.dll");
-        load_dll(&path).context("Failed to load original dinput8.dll")
+        path.push('\\');
+        path.push_str(DLL_NAME);
+        load_dll(&path).context("Failed to load system dll")
     }
 }
 
-fn load_dinput(exe_dir: impl AsRef<Path>) -> Result<HMODULE> {
+fn load_system_or_override_dll(exe_dir: impl AsRef<Path>) -> Result<HMODULE> {
     let override_dll_path = exe_dir.as_ref().join(OVERRIDE_DLL_NAME);
     match load_dll(&override_dll_path) {
         Ok(module) => {
@@ -212,7 +221,7 @@ fn load_dinput(exe_dir: impl AsRef<Path>) -> Result<HMODULE> {
         }
         Err(e) => {
             debug!("Failed to load {OVERRIDE_DLL_NAME}: {e:#}");
-            load_real_dinput()
+            load_system_dll()
         }
     }
 }
@@ -235,8 +244,8 @@ fn message_box_error(error: anyhow::Error) {
     unsafe { MessageBoxW(None, &body, &caption, MB_OK) };
 }
 
-fn dinput_load_error(error: anyhow::Error) {
-    message_box_error(error.context("Failed to load real dinput8.dll from system dir"));
+fn system_dll_load_error(error: anyhow::Error) {
+    message_box_error(error.context("Failed to load real dll from system dir"));
 }
 
 fn set_env_log_level(log_level: LogLevel) {
@@ -265,9 +274,9 @@ fn main() {
             if config.console {
                 enable_console(config.log_level);
             }
-            match load_dinput(&exe_dir) {
-                Ok(dinput) => {
-                    exports::init(dinput);
+            match load_system_or_override_dll(&exe_dir) {
+                Ok(module) => {
+                    exports::init(module);
                     if already_loaded {
                         debug!("Already loaded, skipping plugin loading");
                     } else {
@@ -279,7 +288,7 @@ fn main() {
                     }
                 }
                 Err(e) => {
-                    dinput_load_error(e);
+                    system_dll_load_error(e);
                 }
             }
         }
@@ -288,8 +297,8 @@ fn main() {
             error!(
                 "Failed to get exe directory, not loading {OVERRIDE_DLL_NAME} or plugins: {e:#}"
             );
-            if let Err(e) = load_real_dinput() {
-                dinput_load_error(e);
+            if let Err(e) = load_system_dll() {
+                system_dll_load_error(e);
             }
         }
     }
