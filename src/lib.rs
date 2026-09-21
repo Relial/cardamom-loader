@@ -276,7 +276,9 @@ fn main() {
             }
             match load_system_or_override_dll(&exe_dir) {
                 Ok(module) => {
-                    exports::init(module);
+                    if let Err(e) = exports::init(module) {
+                        message_box_error(e);
+                    }
                     if already_loaded {
                         debug!("Already loaded, skipping plugin loading");
                     } else {
